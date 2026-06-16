@@ -494,6 +494,36 @@ class TestGenerateBilling:
                 streaming=False,
             )
 
+    def test_testing_debugger_ignores_billing_quota_exceeded(
+        self, mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch
+    ):
+        from services.errors.app import QuotaExceededError
+
+        monkeypatch.setattr(ags_module.dify_config, "BILLING_ENABLED", True)
+        monkeypatch.setattr(ags_module.dify_config, "DEPLOY_ENV", "TESTING")
+        mocker.patch(
+            "services.app_generate_service.QuotaService.reserve",
+            side_effect=QuotaExceededError(feature="workflow", tenant_id="t", required=1),
+        )
+        mocker.patch(
+            "services.app_generate_service.CompletionAppGenerator.generate",
+            return_value={"ok": True},
+        )
+        mocker.patch(
+            "services.app_generate_service.CompletionAppGenerator.convert_to_event_stream",
+            side_effect=lambda x: x,
+        )
+
+        response = AppGenerateService.generate(
+            app_model=_make_app(AppMode.COMPLETION),
+            user=_make_user(),
+            args={"inputs": {}},
+            invoke_from=InvokeFrom.DEBUGGER,
+            streaming=False,
+        )
+
+        assert response == {"ok": True}
+
     def test_exception_refunds_quota_and_exits_rate_limit(self, mocker: MockerFixture, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(ags_module.dify_config, "BILLING_ENABLED", True)
         quota_charge = MagicMock()

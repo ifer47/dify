@@ -32,12 +32,17 @@ from tasks.app_generate.workflow_execute_task import AppExecutionParams, workflo
 logger = logging.getLogger(__name__)
 
 SSE_TASK_START_FALLBACK_MS = 200
+TESTING_DEPLOY_ENV = "TESTING"
 
 if TYPE_CHECKING:
     from controllers.console.app.workflow import LoopNodeRunPayload
 
 
 class AppGenerateService:
+    @staticmethod
+    def _should_ignore_workflow_quota_limit(invoke_from: InvokeFrom) -> bool:
+        return dify_config.DEPLOY_ENV == TESTING_DEPLOY_ENV and invoke_from == InvokeFrom.DEBUGGER
+
     @staticmethod
     def _build_streaming_task_on_subscribe(start_task: Callable[[], None]) -> Callable[[], None]:
         """
@@ -110,7 +115,15 @@ class AppGenerateService:
             try:
                 quota_charge = QuotaService.reserve(QuotaType.WORKFLOW, app_model.tenant_id)
             except QuotaExceededError:
-                raise InvokeRateLimitError(f"Workflow execution quota limit reached for tenant {app_model.tenant_id}")
+                if cls._should_ignore_workflow_quota_limit(invoke_from):
+                    logger.warning(
+                        "Ignoring workflow quota limit for testing debugger invocation, tenant_id=%s",
+                        app_model.tenant_id,
+                    )
+                else:
+                    raise InvokeRateLimitError(
+                        f"Workflow execution quota limit reached for tenant {app_model.tenant_id}"
+                    )
 
         # app level rate limiter
         max_active_request = cls._get_max_active_requests(app_model)
